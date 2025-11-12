@@ -200,15 +200,42 @@ def index():
     return False
 
 
+def Rest1():
+    if lookahead == 'F3':
+        STMT()
+    elif lookahead in ['WORD', 'BYTE', 'RESW', 'RESB']:
+        Data()
+
+
+def Rest2():
+    global locctr, tokenval
+    if lookahead == 'STRING':
+        if pass1or2 == 2:
+            string_value = symtable[tokenval].att
+            string_len = len(string_value) // 2  
+        match('STRING')
+        if pass1or2 == 2:
+            print("T %06X %02X %s" % (locctr, string_len, string_value))
+        locctr += (symtable[tokenval].att).__len__() // 2
+    elif lookahead == 'HEX':
+        if pass1or2 == 2:
+            hex_value = symtable[tokenval].att
+            hex_len = len(hex_value) // 2  
+        match('HEX')
+        if pass1or2 == 2:
+            print("T %06X %02X %s" % (locctr, hex_len, hex_value))
+        locctr += (symtable[tokenval].att).__len__() // 2
+
+
 # see slide 26 - ch2
-def stmt():
+def STMT():
     global inst, locctr, tokenval
     if pass1or2 == 2:
-        inst = symtable[tokenval].att << 16  # save opcode BEFORE match
+        inst = symtable[tokenval].att << 16  
     match('F3')
-    locctr += 3  # increment AFTER match, as per grammar
+    locctr += 3  
     if pass1or2 == 2:
-        inst += symtable[tokenval].att  # save address BEFORE match
+        inst += symtable[tokenval].att  
     match('ID')
     indexed = index()
     if pass1or2 == 2:
@@ -216,14 +243,8 @@ def stmt():
             inst += Xbit3set  # set X bit
         print("T %06X 03 %06X" % (locctr - 3, inst))
 
-def rest1():
-    if lookahead == 'F3':
-        stmt()
-    elif lookahead in ['WORD', 'BYTE', 'RESW', 'RESB']:
-        data()
 
-
-def data():
+def Data():
     global locctr, tokenval
     if lookahead == 'WORD':
         match('WORD')
@@ -236,44 +257,24 @@ def data():
 
     elif lookahead == 'RESW':
         match('RESW')
-        resw_count = tokenval  # save before match consumes it
+        resw_count = tokenval  
         match('NUM')
         locctr += 3 * resw_count
 
     elif lookahead == 'RESB':
         match('RESB')
-        resb_count = tokenval  # save before match consumes it
+        resb_count = tokenval
         match('NUM')
         locctr += resb_count
 
     elif lookahead == 'BYTE':
         match('BYTE')
-        rest2()
-
-
-def rest2():
-    global locctr, tokenval
-    if lookahead == 'STRING':
-        if pass1or2 == 2:
-            string_value = symtable[tokenval].att
-            string_len = len(string_value) // 2  # length in bytes
-        match('STRING')
-        if pass1or2 == 2:
-            print("T %06X %02X %s" % (locctr, string_len, string_value))
-        locctr += (symtable[tokenval].att).__len__() // 2
-    elif lookahead == 'HEX':
-        if pass1or2 == 2:
-            hex_value = symtable[tokenval].att
-            hex_len = len(hex_value) // 2  # length in bytes
-        match('HEX')
-        if pass1or2 == 2:
-            print("T %06X %02X %s" % (locctr, hex_len, hex_value))
-        locctr += (symtable[tokenval].att).__len__() // 2
+        Rest2()
 
 
 # header -> ID START NUM 
 # see slide 26 - ch2
-def header():
+def Header():
     global lookahead, defID, IdIndex, startAddress, locctr, totalSize, tokenval
     lookahead = lexan()
 
@@ -290,8 +291,46 @@ def header():
         print("H%-6s %06X %06X" % (symtable[IdIndex].string, startAddress, totalSize))
 
 
+# for body, two cases: with label or without label, or epsilon
+def Body():
+    global defID, inst
+    defID = True
+
+    if lookahead == 'END':  
+        return
+
+    if pass1or2 == 2:
+        inst = 0
+
+    if lookahead == 'ID':  # with label
+        if symtable[tokenval].att == -1:
+            symtable[tokenval].att = locctr
+        match('ID')
+        defID = False
+        Rest1()
+        Body()
+
+    elif lookahead == 'F3':  # an instruction without a label
+        defID = False  # no label being defined
+        if pass1or2 == 2:
+            inst = 0
+        STMT()
+        Body()
+
+    # I removed this line because it's not included in the grammar, this case is for handling data directives without labels
+    # elif lookahead in ['WORD', 'BYTE', 'RESW', 'RESB']:  # data without label
+    #     defID = False  # no label being defined
+    #     Data()
+    #     Body()
+
+    else:
+        # If none match and it’s not END, it's a syntax issue
+        if lookahead != 'END' and lookahead != 'EOF':
+            error("Syntax error in Body()")
+            
+
 # tail -> END ID
-def tail():
+def Tail():
     global totalSize, startAddress
     match('END')
     match('ID')
@@ -300,49 +339,11 @@ def tail():
         print("E %06X" % startAddress)
 
 
-# for body, two cases: with label or without label, or epsilon
-def body():
-    global defID, inst
-    defID = True
-
-    if lookahead == 'END':  # ✅ stop parsing when END appears
-        return
-
-    if pass1or2 == 2:
-        inst = 0
-
-    if lookahead == 'ID':  # with label
-        # Update address if this was a forward reference
-        if symtable[tokenval].att == -1:
-            symtable[tokenval].att = locctr
-        match('ID')
-        defID = False
-        rest1()
-        body()
-
-    elif lookahead == 'F3':  # an instruction without a label
-        defID = False  # no label being defined
-        if pass1or2 == 2:
-            inst = 0
-        stmt()
-        body()
-
-    elif lookahead in ['WORD', 'BYTE', 'RESW', 'RESB']:  # data without label
-        defID = False  # no label being defined
-        data()
-        body()
-
-    else:
-        # If none match and it’s not END, it's a syntax issue
-        if lookahead != 'END' and lookahead != 'EOF':
-            error("Syntax error in body()")
-
-
 # parser SIC 
 def parse():
-    header()
-    body()
-    tail()
+    Header()
+    Body()
+    Tail()
 
 
 # def print_symtable():

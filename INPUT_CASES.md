@@ -1,5 +1,13 @@
 # SIC and SIC/XE Assembler Test Cases
 
+doctor's cases:
+P4 START 0
+main ADDR X, S       # main is the label (no spaces before it)
+    RSUB            # the result should give 4C not 4F
+    FIX             # format 1 - gives 4C
+V4 BYTE X'AB'
+    END main
+
 ## Test Setup
 This document contains test cases for both SIC and SIC/XE assemblers with expected outputs.
 
@@ -110,7 +118,7 @@ prog start 0
      lda @ptr
      sta result
 value word 100
-ptr   word value
+ptr word 12
 result resw 1
       end prog
 ```

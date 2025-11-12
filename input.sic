@@ -1,6 +1,6 @@
-prog start 0
-    lda xx
-    sta yy
-xx  word 5
-yy  resw 1
-    end prog
+P4 START 0
+main ADDR X,S
+    RSUB
+    FIX
+V4 BYTE X'AB'
+    END main

@@ -9,30 +9,30 @@ main()
   │
   └─→ parse() [Pass 1 & 2]
        │
-       ├─→ header()             # Process START directive
+       ├─→ Header()             # Process START directive
        │    └─→ lexan() → match('ID') → match('START') → match('NUM')
        │
-       ├─→ body()               # Process program body
+       ├─→ Body()               # Process program body
        │    │
        │    ├─→ [If lookahead == 'ID']
-       │    │    └─→ match('ID') → rest1()
+       │    │    └─→ match('ID') → Rest1()
        │    │
        │    ├─→ [If lookahead in ['F1','F2','F3','+']]
-       │    │    └─→ stmt()
+       │    │    └─→ STMT()
        │    │
        │    └─→ [If lookahead in ['WORD','BYTE','RESW','RESB']]
-       │         └─→ data()
+       │         └─→ Data()
        │
-       └─→ tail()               # Process END directive
+       └─→ Tail()               # Process END directive
             └─→ match('END') → match('ID')
 ```
 
 ---
 
-## 🔧 Detailed stmt() Branch
+## 🔧 Detailed STMT() Branch
 
 ```
-stmt()
+STMT()
   │
   ├─→ [If lookahead == 'F1']
   │    └─→ stmt_f1()
@@ -43,7 +43,7 @@ stmt()
   │    └─→ stmt_f2()
   │         ├─→ match('F2')
   │         ├─→ match('REG')
-  │         ├─→ rest5()                    # Optional: ,REG
+  │         ├─→ Rest5()                    # Optional: ,REG
   │         │    └─→ [If ','] match(',') → match('REG')
   │         └─→ Output: 2-byte instruction
   │
@@ -71,7 +71,7 @@ rest2_sicxe(is_format4)
   ├─→ [If lookahead == '#']        IMMEDIATE ADDRESSING
   │    ├─→ match('#')
   │    ├─→ Set i bit only (n=0, i=1)
-  │    └─→ rest4()                      ← NEW FUNCTION
+  │    └─→ Rest4()                      ← NEW FUNCTION
   │         │
   │         ├─→ [If 'ID'] match('ID')   # LDA #ALPHA
   │         └─→ [If 'NUM'] match('NUM') # LDA #10
@@ -79,7 +79,7 @@ rest2_sicxe(is_format4)
   ├─→ [If lookahead == '@']        INDIRECT ADDRESSING
   │    ├─→ match('@')
   │    ├─→ Set n bit only (n=1, i=0)
-  │    └─→ rest4()                      ← NEW FUNCTION
+  │    └─→ Rest4()                      ← NEW FUNCTION
   │         │
   │         ├─→ [If 'ID'] match('ID')   # LDA @PTR
   │         └─→ [If 'NUM'] match('NUM') # LDA @100
@@ -102,10 +102,10 @@ rest2_sicxe(is_format4)
 
 ---
 
-## 📦 data() Branch
+## 📦 Data() Branch
 
 ```
-data()
+Data()
   │
   ├─→ [If lookahead == 'WORD']
   │    ├─→ match('WORD')
@@ -124,7 +124,7 @@ data()
   │
   └─→ [If lookahead == 'BYTE']
        ├─→ match('BYTE')
-       └─→ rest2()                      ← DIFFERENT rest2!
+       └─→ Rest2()                      ← DIFFERENT rest2!
             │
             ├─→ [If 'STRING']
             │    ├─→ match('STRING')    # C'HELLO'
@@ -155,7 +155,7 @@ RESULT RESW   1
 main()
 └─→ parse()
     │
-    ├─→ header()
+    ├─→ Header()
     │   ├─→ lexan() → 'ID' (PROG)
     │   ├─→ match('ID')
     │   ├─→ lexan() → 'START'
@@ -163,21 +163,21 @@ main()
     │   ├─→ lexan() → 'NUM' (0)
     │   └─→ match('NUM')
     │
-    ├─→ body() [First call]
+    ├─→ Body() [First call]
     │   ├─→ lookahead = 'F3' (LDA)
-    │   ├─→ stmt()
+    │   ├─→ STMT()
     │   │   └─→ stmt_f3_f4(False)
     │   │       ├─→ match('F3')           # LDA
     │   │       └─→ rest2_sicxe(False)
     │   │           ├─→ lookahead = '#'
     │   │           ├─→ match('#')
-    │   │           └─→ rest4()
+    │   │           └─→ Rest4()
     │   │               ├─→ lookahead = 'NUM' (10)
     │   │               └─→ match('NUM')
     │   │
-    │   └─→ body() [Recursive call]
+    │   └─→ Body() [Recursive call]
     │       ├─→ lookahead = 'F3' (STA)
-    │       ├─→ stmt()
+    │       ├─→ STMT()
     │       │   └─→ stmt_f3_f4(False)
     │       │       ├─→ match('F3')       # STA
     │       │       └─→ rest2_sicxe(False)
@@ -185,27 +185,27 @@ main()
     │       │           ├─→ match('ID')
     │       │           └─→ index() → False
     │       │
-    │       └─→ body() [Recursive call]
+    │       └─→ Body() [Recursive call]
     │           ├─→ lookahead = 'ID' (MSG)
     │           ├─→ match('ID')
-    │           ├─→ rest1()
-    │           │   └─→ data()
+    │           ├─→ Rest1()
+    │           │   └─→ Data()
     │           │       ├─→ lookahead = 'BYTE'
     │           │       ├─→ match('BYTE')
-    │           │       └─→ rest2()       ← DIFFERENT rest2!
+    │           │       └─→ Rest2()       ← DIFFERENT rest2!
     │           │           ├─→ lookahead = 'STRING'
     │           │           └─→ match('STRING')
     │           │
-    │           └─→ body() [Recursive call]
+    │           └─→ Body() [Recursive call]
     │               ├─→ lookahead = 'ID' (RESULT)
     │               ├─→ match('ID')
-    │               └─→ rest1()
-    │                   └─→ data()
+    │               └─→ Rest1()
+    │                   └─→ Data()
     │                       ├─→ lookahead = 'RESW'
     │                       ├─→ match('RESW')
     │                       └─→ match('NUM')
     │
-    └─→ tail()
+    └─→ Tail()
         ├─→ match('END')
         └─→ match('ID')
 ```
@@ -218,20 +218,20 @@ main()
 |----------|---------|-----------|-------|
 | `main()` | Entry point | - | `init()`, `parse()` |
 | `init()` | Initialize symbol table | `main()` | `insert()` |
-| `parse()` | Two-pass assembly | `main()` | `header()`, `body()`, `tail()` |
-| `header()` | Process START | `parse()` | `lexan()`, `match()` |
-| `body()` | Process statements | `parse()`, itself (recursive) | `stmt()`, `data()`, `rest1()` |
-| `tail()` | Process END | `parse()` | `match()` |
-| `stmt()` | Dispatch instructions | `body()` | `stmt_f1()`, `stmt_f2()`, `stmt_f3_f4()` |
-| `stmt_f1()` | Format 1 instructions | `stmt()` | `match()` |
-| `stmt_f2()` | Format 2 instructions | `stmt()` | `match()`, `rest5()` |
-| `stmt_f3_f4()` | Format 3/4 instructions | `stmt()` | `match()`, `rest2_sicxe()` |
-| `rest2_sicxe()` | **Handle F3/F4 operands** | `stmt_f3_f4()` | `match()`, `rest4()`, `index()` |
-| `rest4()` | **Handle # or @ operand** | `rest2_sicxe()` | `match()` |
-| `rest5()` | Optional 2nd register | `stmt_f2()` | `match()` |
-| `data()` | Process directives | `body()` | `match()`, `rest2()` |
-| `rest2()` | **Handle BYTE data** | `data()` | `match()` |
-| `rest1()` | Dispatch after label | `body()` | `stmt()`, `data()` |
+| `parse()` | Two-pass assembly | `main()` | `Header()`, `Body()`, `Tail()` |
+| `Header()` | Process START | `parse()` | `lexan()`, `match()` |
+| `Body()` | Process statements | `parse()`, itself (recursive) | `STMT()`, `Data()`, `Rest1()` |
+| `Tail()` | Process END | `parse()` | `match()` |
+| `STMT()` | Dispatch instructions | `Body()` | `stmt_f1()`, `stmt_f2()`, `stmt_f3_f4()` |
+| `stmt_f1()` | Format 1 instructions | `STMT()` | `match()` |
+| `stmt_f2()` | Format 2 instructions | `STMT()` | `match()`, `Rest5()` |
+| `stmt_f3_f4()` | Format 3/4 instructions | `STMT()` | `match()`, `rest2_sicxe()` |
+| `rest2_sicxe()` | **Handle F3/F4 operands** | `stmt_f3_f4()` | `match()`, `Rest4()`, `index()` |
+| `Rest4()` | **Handle # or @ operand** | `rest2_sicxe()` | `match()` |
+| `Rest5()` | Optional 2nd register | `stmt_f2()` | `match()` |
+| `Data()` | Process directives | `Body()` | `match()`, `Rest2()` |
+| `Rest2()` | **Handle BYTE data** | `Data()` | `match()` |
+| `Rest1()` | Dispatch after label | `Body()` | `STMT()`, `Data()` |
 | `index()` | Check for ,X | `rest2_sicxe()` | `match()` |
 | `match()` | Consume token | Everyone | `lexan()` |
 | `lexan()` | Get next token | `match()` | `lookup()`, `insert()` |
@@ -242,10 +242,10 @@ main()
 
 ```
 ╔══════════════════════════════════════════════════════════════╗
-║                    rest2() vs rest2_sicxe()                  ║
+║                    Rest2() vs rest2_sicxe()                  ║
 ╠══════════════════════════════════════════════════════════════╣
 ║                                                              ║
-║  rest2()                     rest2_sicxe()                   ║
+║  Rest2()                     rest2_sicxe()                   ║
 ║  └─ For BYTE directive       └─ For Format 3/4 operands     ║
 ║      │                           │                           ║
 ║      ├─ STRING (C'...')          ├─ # rest4 (immediate)     ║
@@ -273,7 +273,7 @@ main()
 1. **Clear Separation**: Data handling vs instruction handling
 2. **Follows Grammar**: Matches the grammar specification exactly
 3. **Modular**: Easy to modify individual functions
-4. **Reusable**: `rest4()` used by both immediate and indirect
+4. **Reusable**: `Rest4()` used by both immediate and indirect
 5. **Maintainable**: Each function has a single, clear purpose
 6. **Testable**: Can test each function independently
 

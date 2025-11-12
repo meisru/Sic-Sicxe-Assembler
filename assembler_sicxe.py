@@ -97,60 +97,49 @@ def lexan():
         bufferindex = bufferindex + 1
         return (c)
     else:
-        if (filecontent[bufferindex].upper() == 'C') and (filecontent[bufferindex+1] == '\''):
-            bytestring = ''
-            bufferindex += 2
-            while filecontent[bufferindex] != '\'':
-                bytestring += filecontent[bufferindex]
-                bufferindex += 1
-                if filecontent[bufferindex] != '\'':
-                    bytestring += ' '
-            bufferindex += 1
-            bytestringvalue = "".join("%02X" % ord(c) for c in bytestring)
-            bytestring = '1_' + bytestring
-            p = lookup(bytestring)
-            if p == -1:
-                p = insert(bytestring, 'STRING', bytestringvalue)
-            tokenval = p
-        elif (filecontent[bufferindex] == '\''):
-            bytestring = ''
-            bufferindex += 1
-            while filecontent[bufferindex] != '\'':
-                bytestring += filecontent[bufferindex]
-                bufferindex += 1
-                if filecontent[bufferindex] != '\'':
-                    bytestring += ' '
-            bufferindex += 1
-            bytestringvalue = "".join("%02X" % ord(c) for c in bytestring)
-            bytestring = '1_' + bytestring
-            p = lookup(bytestring)
-            if p == -1:
-                p = insert(bytestring, 'STRING', bytestringvalue)
-            tokenval = p
-        elif (filecontent[bufferindex].upper() == 'X') and (filecontent[bufferindex+1] == '\''):
-            bufferindex += 2
-            bytestring = filecontent[bufferindex]
-            bufferindex += 2
-            bytestringvalue = bytestring
-            if len(bytestringvalue)%2 == 1:
-                bytestringvalue = '0'+ bytestringvalue
-            bytestring = '2_' + bytestring
-            p = lookup(bytestring)
-            if p == -1:
-                p = insert(bytestring, 'HEX', bytestringvalue)
-            tokenval = p
-        else:
-            p=lookup(filecontent[bufferindex].upper())
-            if p == -1:
-                if defID == True:
-                    p=insert(filecontent[bufferindex].upper(),'ID',locctr)
-                else:
-                    p=insert(filecontent[bufferindex].upper(),'ID',-1)
+        # Check if this is a complete C'...' or X'...' literal
+        token = filecontent[bufferindex]
+        
+        if len(token) > 2 and token[0].upper() in ['C', 'X'] and token[1] == "'" and token[-1] == "'":
+            # This is a complete literal like C'HELLO' or X'AB'
+            
+            if token[0].upper() == 'C':
+                # C'string' format
+                bytestring = token[2:-1]  # Extract content between quotes
+                bytestringvalue = "".join("%02X" % ord(c) for c in bytestring)
+                bytestring = '1_' + bytestring
+                p = lookup(bytestring)
+                if p == -1:
+                    p = insert(bytestring, 'STRING', bytestringvalue)
+                tokenval = p
+                bufferindex = bufferindex + 1
+                return 'STRING'
             else:
-                if (symtable[p].att == -1) and (defID == True):
-                    symtable[p].att = locctr
-            tokenval = p
-            bufferindex = bufferindex + 1
+                # X'hex' format
+                bytestring = token[2:-1]  # Extract hex between quotes
+                bytestringvalue = bytestring
+                if len(bytestringvalue) % 2 == 1:
+                    bytestringvalue = '0' + bytestringvalue
+                bytestring = '2_' + bytestring
+                p = lookup(bytestring)
+                if p == -1:
+                    p = insert(bytestring, 'HEX', bytestringvalue)
+                tokenval = p
+                bufferindex = bufferindex + 1
+                return 'HEX'
+        
+        # Not a literal, process as identifier/keyword
+        p=lookup(filecontent[bufferindex].upper())
+        if p == -1:
+            if defID == True:
+                p=insert(filecontent[bufferindex].upper(),'ID',locctr)
+            else:
+                p=insert(filecontent[bufferindex].upper(),'ID',-1)
+        else:
+            if (symtable[p].att == -1) and (defID == True):
+                symtable[p].att = locctr
+        tokenval = p
+        bufferindex = bufferindex + 1
         return (symtable[p].token)
 
 def error(s):
@@ -160,6 +149,7 @@ def error(s):
 def match(token):
     global lookahead
     if lookahead == token:
+        old_lookahead = lookahead
         lookahead = lexan()
     else:
         error('Syntax error')
@@ -174,47 +164,101 @@ def index():
         return True
     return False
 
-# Format 1: single byte, no operands
-def stmt_f1():
-    global inst, locctr, tokenval
-    if pass1or2 == 2:
-        inst = symtable[tokenval].att  # opcode only
-    match('F1')
-    locctr += 1
-    if pass1or2 == 2:
-        print("T %06X 01 %02X" % (locctr - 1, inst))
 
-def rest5():
-    global inst, tokenval
-    if lookahead == ',':
-        match(',')
+## REST FUNCTIONS ##
+
+
+def Rest1():
+    if lookahead in ['F1', 'F2', 'F3', '+']:
+        STMT()
+    elif lookahead in ['WORD', 'BYTE', 'RESW', 'RESB']:
+        Data()
+
+
+def Rest2():
+    global locctr, tokenval
+    if lookahead == 'STRING':
         if pass1or2 == 2:
-            inst += symtable[tokenval].att  # r2 in low nibble
-        match('REG')
+            string_value = symtable[tokenval].att
+            string_len = len(string_value) // 2
+        string_size = len(symtable[tokenval].att) // 2  
+        match('STRING')
+        if pass1or2 == 2:
+            print("T %06X %02X %s" % (locctr, string_len, string_value))
+        locctr += string_size
+    elif lookahead == 'HEX':
+        if pass1or2 == 2:
+            hex_value = symtable[tokenval].att
+            hex_len = len(hex_value) // 2
+        hex_size = len(symtable[tokenval].att) // 2  
+        match('HEX')
+        if pass1or2 == 2:
+            print("T %06X %02X %s" % (locctr, hex_len, hex_value))
+        locctr += hex_size
 
-# Format 2: REG rest5
-# rest5 -> , REG | ε
-def stmt_f2():
-    global inst, locctr, tokenval
-    if pass1or2 == 2:
-        inst = symtable[tokenval].att << 8  # opcode in high byte
-    match('F2')
-    locctr += 2
+
+# rest2 for SIC/XE -> ID INDEX | NUM INDEX | # rest4 | @ rest4 | ε
+def rest2_sicxe(is_format4):
+    global inst
     
-    # First register
-    if pass1or2 == 2:
-        inst += (symtable[tokenval].att << 4)  # r1 in high nibble
-    reg1 = tokenval
-    match('REG')
+    # if next token starts a new line, no operand
+    if lookahead in ['WORD', 'BYTE', 'RESW', 'RESB', 'END', 'EOF']:
+        # ε 
+        return
     
-    # rest5: optional second register
-    rest5()
+    # is it a label (new line) or an operand?
+    # If ID appears at locctr (being defined now), it's a label, not operand
+    if lookahead == 'ID':
+        id_att = symtable[tokenval].att
+        if id_att == -1 or id_att == locctr:
+            # ε
+            return
     
-    if pass1or2 == 2:
-        print("T %06X 02 %04X" % (locctr - 2, inst))
+    if lookahead == 'ID':  # Simple addressing 
+        if pass1or2 == 2:
+            inst += symtable[tokenval].att
+        match('ID')
+        indexed = index()
+        if pass1or2 == 2 and indexed:
+            if not is_format4:
+                inst += Xbit3set
+            else:
+                inst += Xbit4set
+    
+    elif lookahead == 'NUM':  # Simple addressing 
+        if pass1or2 == 2:
+            inst += tokenval
+        match('NUM')
+        indexed = index()
+        if pass1or2 == 2 and indexed:
+            if not is_format4:
+                inst += Xbit3set
+            else:
+                inst += Xbit4set
+    
+    elif lookahead == '#':  # Immediate addressing
+        match('#')
+        if pass1or2 == 2:
+            # Set i bit only (immediate)
+            if not is_format4:
+                inst = (inst & ~(Nbitset << 16)) | (Ibitset << 16) # It turns off the "n" bit and turns on the "i" bit so the instruction uses immediate addressing
+            else:
+                inst = (inst & ~(Nbitset << 24)) | (Ibitset << 24)
+        Rest4()
+    
+    elif lookahead == '@':  # Indirect addressing
+        match('@')
+        if pass1or2 == 2:
+            # Set n bit only (indirect)
+            if not is_format4:
+                inst = (inst & ~(Ibitset << 16)) | (Nbitset << 16) # turns off the "i" bit and turns on the "n" bit 
+            else:
+                inst = (inst & ~(Ibitset << 24)) | (Nbitset << 24)
+        Rest4()
+
 
 # rest4 -> ID | NUM (for immediate and indirect addressing)
-def rest4():
+def Rest4():
     global inst, tokenval
     if lookahead == 'ID':
         if pass1or2 == 2:
@@ -225,56 +269,17 @@ def rest4():
             inst += tokenval
         match('NUM')
 
-# rest2 for SIC/XE Format 3/4 operands
-# rest2 -> ID INDEX | NUM INDEX | # rest4 | @ rest4 | ε
-def rest2_sicxe(is_format4):
-    global inst
 
-    if lookahead == 'ID':  # Simple addressing with ID
+def Rest5():
+    global inst, tokenval
+    if lookahead == ',':
+        match(',')
         if pass1or2 == 2:
-            inst += symtable[tokenval].att
-        match('ID')
-        indexed = index()
-        if pass1or2 == 2 and indexed:
-            if not is_format4:
-                inst |= Xbit3set
-            else:
-                inst |= Xbit4set
-    
-    elif lookahead == 'NUM':  # Simple addressing with NUM
-        if pass1or2 == 2:
-            inst += tokenval
-        match('NUM')
-        indexed = index()
-        if pass1or2 == 2 and indexed:
-            if not is_format4:
-                inst |= Xbit3set
-            else:
-                inst |= Xbit4set
-    
-    elif lookahead == '#':  # Immediate addressing
-        match('#')
-        if pass1or2 == 2:
-            # Set i bit only (immediate)
-            if not is_format4:
-                inst = (inst & ~(Nbitset << 16)) | (Ibitset << 16)
-            else:
-                inst = (inst & ~(Nbitset << 24)) | (Ibitset << 24)
-        rest4()
-    
-    elif lookahead == '@':  # Indirect addressing
-        match('@')
-        if pass1or2 == 2:
-            # Set n bit only (indirect)
-            if not is_format4:
-                inst = (inst & ~(Ibitset << 16)) | (Nbitset << 16)
-            else:
-                inst = (inst & ~(Ibitset << 24)) | (Nbitset << 24)
-        rest4()
-    
-    # ε case - no operand (for RSUB, etc.) - do nothing
+            inst += symtable[tokenval].att  
+        match('REG')
 
-# Format 3/4: SICXE instructions
+
+# Format 3/4
 def stmt_f3_f4(is_format4):
     global inst, locctr, tokenval
     
@@ -284,17 +289,19 @@ def stmt_f3_f4(is_format4):
         inst = symtable[tokenval].att << (16 if not is_format4 else 24)  # opcode
         # Set n and i bits for simple addressing (both 1)
         if not is_format4:
-            inst |= (Nbitset << 16) | (Ibitset << 16)
+            if symtable[tokenval].att == 0x4C:  # RSUB special case
+                inst += 0  # Set both n and i bits to 0 (NOT SURE)
+            else:
+                inst += (Nbitset << 16) | (Ibitset << 16)
         else:
-            inst |= (Nbitset << 24) | (Ibitset << 24)
-            inst |= Ebit4set  # Set e bit for format 4
+            inst += (Nbitset << 24) | (Ibitset << 24)
+            inst += Ebit4set  # Set e bit for format 4
     
     if is_format4:
         match('+')
     match('F3')
     locctr += format_size
     
-    # Call rest2 to handle operands
     rest2_sicxe(is_format4)
     
     if pass1or2 == 2:
@@ -303,26 +310,51 @@ def stmt_f3_f4(is_format4):
         else:
             print("T %06X 03 %06X" % (locctr - 3, inst))
 
-def stmt():
-    global lookahead
+
+def STMT():
+    global lookahead, inst, locctr, tokenval
+
+    # Format 1
     if lookahead == 'F1':
-        stmt_f1()
+        if pass1or2 == 2:
+            inst = symtable[tokenval].att  
+        match('F1')
+        locctr += 1
+        if pass1or2 == 2:
+            print("T %06X 01 %02X" % (locctr - 1, inst))
+
+    # Format 2
     elif lookahead == 'F2':
-        stmt_f2()
-    elif lookahead == '+':
-        stmt_f3_f4(True)  # Format 4
+        if pass1or2 == 2:
+            inst = symtable[tokenval].att << 8  
+        match('F2')
+        locctr += 2
+    
+        # First register
+        if pass1or2 == 2:
+            inst += (symtable[tokenval].att << 4)  
+        reg1 = tokenval
+        match('REG')
+    
+        # rest5: optional second register
+        Rest5()
+    
+        if pass1or2 == 2:
+            print("T %06X 02 %04X" % (locctr - 2, inst))
+
+    # Format 3
     elif lookahead == 'F3':
-        stmt_f3_f4(False)  # Format 3
+        stmt_f3_f4(False)  
+
+    # Format 4
+    elif lookahead == '+':
+        stmt_f3_f4(True)  
+
     else:
         error('Expected instruction')
 
-def rest1():
-    if lookahead in ['F1', 'F2', 'F3', '+']:
-        stmt()
-    elif lookahead in ['WORD', 'BYTE', 'RESW', 'RESB']:
-        data()
 
-def data():
+def Data():
     global locctr, tokenval
     if lookahead == 'WORD':
         match('WORD')
@@ -347,30 +379,10 @@ def data():
 
     elif lookahead == 'BYTE':
         match('BYTE')
-        rest2()
+        Rest2()
 
-def rest2():
-    global locctr, tokenval
-    if lookahead == 'STRING':
-        if pass1or2 == 2:
-            string_value = symtable[tokenval].att
-            string_len = len(string_value) // 2
-        string_size = len(symtable[tokenval].att) // 2  # Save before match
-        match('STRING')
-        if pass1or2 == 2:
-            print("T %06X %02X %s" % (locctr, string_len, string_value))
-        locctr += string_size
-    elif lookahead == 'HEX':
-        if pass1or2 == 2:
-            hex_value = symtable[tokenval].att
-            hex_len = len(hex_value) // 2
-        hex_size = len(symtable[tokenval].att) // 2  # Save before match
-        match('HEX')
-        if pass1or2 == 2:
-            print("T %06X %02X %s" % (locctr, hex_len, hex_value))
-        locctr += hex_size
 
-def header():
+def Header():
     global lookahead, defID, IdIndex, startAddress, locctr, totalSize, tokenval
     lookahead = lexan()
 
@@ -384,17 +396,10 @@ def header():
     match('NUM')
 
     if pass1or2 == 2:
-        print("H%-6s %06X %06X" % (symtable[IdIndex].string, startAddress, totalSize))
+        print("H %-6s %06X %06X" % (symtable[IdIndex].string, startAddress, totalSize))
 
-def tail():
-    global totalSize, startAddress
-    match('END')
-    match('ID')
-    totalSize = locctr - startAddress
-    if pass1or2 == 2:
-        print("E %06X" % startAddress)
 
-def body():
+def Body():
     global defID, inst
     defID = True
 
@@ -409,36 +414,65 @@ def body():
             symtable[tokenval].att = locctr
         match('ID')
         defID = False
-        rest1()
-        body()
+        Rest1()
+        Body()
 
     elif lookahead in ['F1', 'F2', 'F3', '+']:
         defID = False
         if pass1or2 == 2:
             inst = 0
-        stmt()
-        body()
-
-    elif lookahead in ['WORD', 'BYTE', 'RESW', 'RESB']:
-        defID = False
-        data()
-        body()
+        STMT()
+        Body()
 
     else:
         if lookahead != 'END' and lookahead != 'EOF':
-            error("Syntax error in body()")
+            print(f"DEBUG: Unexpected lookahead: '{lookahead}', tokenval={tokenval}")
+            if lookahead and tokenval < len(symtable):
+                print(f"DEBUG: symtable[{tokenval}] = {symtable[tokenval].string}")
+            error("Syntax error in Body()")
 
-def parse():
-    header()
-    body()
-    tail()
+
+def Tail():
+    global totalSize, startAddress
+    match('END')
+    match('ID')
+    totalSize = locctr - startAddress
+    if pass1or2 == 2:
+        print("E %06X" % startAddress)
+
+def Parser():
+    Header()
+    Body()
+    Tail()
 
 def main():
     global file, filecontent, locctr, pass1or2, bufferindex, lineno
     init()
 
     w = file.read()
-    filecontent= re.split(r"([\W])", w)
+    
+    # Protect C'...' and X'...' literals before splitting
+    # Replace them with placeholders that won't be split
+    import re as regex_module
+    literals = []
+    
+    def protect_literal(match):
+        """Replace literal with placeholder"""
+        literals.append(match.group(0))
+        return f'__LITERAL_{len(literals)-1}__'
+    
+    # Protect C'...' and X'...' (case insensitive)
+    w_protected = regex_module.sub(r"[CcXx]'[^']*'", protect_literal, w)
+    
+    filecontent = re.split(r"([\W])", w_protected)
+    
+    # Restore literals in filecontent
+    for i in range(len(filecontent)):
+        if filecontent[i].startswith('__LITERAL_'):
+            idx = int(filecontent[i].replace('__LITERAL_', '').replace('__', ''))
+            filecontent[i] = literals[idx]
+    
+    # Clean up whitespace
     i=0
     while True:
         while (filecontent[i] == ' ') or (filecontent[i] == '') or (filecontent[i] == '\t'):
@@ -452,7 +486,7 @@ def main():
         filecontent.append('\n')
 
     for pass1or2 in range(1,3):
-        parse()
+        Parser()
         bufferindex = 0
         locctr = 0
         lineno = 1
