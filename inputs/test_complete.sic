@@ -1,0 +1,17 @@
+COPY    START   0
+        USE     CDATA
+FIRST   LDA     ALPHA
+        USE
+MAIN    JSUB    ROUTINE
+        BASE    ALPHA
+        LDX     FARDATA
+        +LDA    EXTERNAL
+        USE     CDATA
+ALPHA   WORD    5
+BETA    RESW    1
+        USE
+ROUTINE LDA     BETA
+        RSUB
+FARDATA WORD    100
+EXTERNAL WORD   0
+        END     FIRST

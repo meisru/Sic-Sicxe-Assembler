@@ -1,0 +1,11 @@
+prog start 0x10
+    LDA Z   
+    USE CDATA   
+    Z word 5 
+    USE    
+    STA Y     
+    USE CBLCK  
+    Y RESB 4000
+    USE CDATA
+    xx byte c'abc' 
+end prog

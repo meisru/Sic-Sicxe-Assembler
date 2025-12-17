@@ -16,9 +16,6 @@ class Entry:
 
 symtable = []
 
-# print(symtable[12].string + ' ' + str(symtable[12].token) + ' ' + str(symtable[12].att))
-
-
 def lookup(s):
     for i in range(0,symtable.__len__()):
         if s == symtable[i].string:
@@ -43,7 +40,7 @@ def init():
         insert(instfile.dir_ex[i], instfile.dir_ex_token[i], instfile.dir_ex_code[i])
 
 
-file = open('input.sic', 'r')  #open the user input file (here called input.sic)
+file = open('inputs/lab1.sic', 'r')  #open the user input file (here called input.sic)
 filecontent = []                # the input file will be parsed to
 bufferindex = 0
 tokenval = 0
@@ -58,6 +55,7 @@ startAddress = 0
 totalSize = 0
 pass_num = 1
 inst = 0
+modification_records = []  # Store (address, length) tuples for relocation
 
 Xbit4set = 0x800000
 Bbit4set = 0x400000
@@ -226,14 +224,15 @@ def Rest2():
             print("T %06X %02X %s" % (locctr, hex_len, hex_value))
         locctr += (symtable[tokenval].att).__len__() // 2
 
-
 # see slide 26 - ch2
 def STMT():
-    global inst, locctr, tokenval
+    global inst, locctr, tokenval, modification_records
+    instruction_address = locctr  # Save instruction address
     if pass1or2 == 2:
         inst = symtable[tokenval].att << 16  
     match('F3')
     locctr += 3  
+    operand_index = tokenval  # Save operand index before match
     if pass1or2 == 2:
         inst += symtable[tokenval].att  
     match('ID')
@@ -241,7 +240,10 @@ def STMT():
     if pass1or2 == 2:
         if indexed:
             inst += Xbit3set  # set X bit
-        print("T %06X 03 %06X" % (locctr - 3, inst))
+        # Add modification record for this instruction (address field needs relocation)
+        # SIC uses 15-bit addresses = 4 half-bytes (not including opcode/flag bits)
+        modification_records.append((instruction_address + 1, 4))  # +1 to skip opcode byte, 4 half-bytes
+        print("T %06X 03 %06X" % (instruction_address, inst))
 
 
 def Data():
@@ -331,11 +333,14 @@ def Body():
 
 # tail -> END ID
 def Tail():
-    global totalSize, startAddress
+    global totalSize, startAddress, modification_records
     match('END')
     match('ID')
     totalSize = locctr - startAddress
     if pass1or2 == 2:
+        # Print modification records for relocation
+        for mod_addr, mod_len in modification_records:
+            print("M %06X %02X" % (mod_addr, mod_len))
         print("E %06X" % startAddress)
 
 
@@ -355,7 +360,7 @@ def parse():
 
 
 def main():
-    global file, filecontent, locctr, pass1or2, bufferindex, lineno
+    global file, filecontent, locctr, pass1or2, bufferindex, lineno, modification_records
     init()
 
     w = file.read()
@@ -373,6 +378,7 @@ def main():
         filecontent.append('\n')
 
     for pass1or2 in range(1,3):
+        modification_records = []  # Clear modification records for each pass
         parse()
         bufferindex = 0
         locctr = 0

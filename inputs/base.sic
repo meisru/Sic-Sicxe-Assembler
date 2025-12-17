@@ -1,0 +1,7 @@
+prog start 0x1000
+   base rr
+   add #y
+z resw 1000
+rr resb 10
+y word 5
+   end  prog

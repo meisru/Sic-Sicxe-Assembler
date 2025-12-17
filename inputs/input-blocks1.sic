@@ -1,0 +1,5 @@
+prog start 0
+   add xx 
+   USE CDATA
+xx word 5
+    end prog

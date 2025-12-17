@@ -1,0 +1,6 @@
+PROG START 0
+     CLEAR A
+     COMPR A,X
+     TIXR X
+     ADDR A,X
+     END PROG

@@ -1,6 +1,0 @@
-P4 START 0
-main ADDR X,S
-    RSUB
-    FIX
-V4 BYTE X'AB'
-    END main

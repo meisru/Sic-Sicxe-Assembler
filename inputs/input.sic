@@ -1,0 +1,6 @@
+Quiz START 0
+    LDA Y
+    + ADD A, Z
+Y word 3
+Z word 10
+    END Quiz

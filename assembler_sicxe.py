@@ -1,122 +1,130 @@
-# SIC/XE Assembler with Format 1, 2, 3, and 4 support
+# SIC/XE Assembler with PC-relative, Base-relative, Relocation, and Program Blocks
+# Based on proven implementation patterns
+
 import instfile
 import re
 
 class Entry:
-    def __init__(self, string, token, attribute):
+    def __init__(self, string, token, attribute, block=-1):
         self.string = string
         self.token = token
         self.att = attribute
+        self.block = block  # Program block: 0=default, 1=CDATA, 2=CBLCK
 
 symtable = []
+baseValue = -1          # BASE register value
+modArray = []           # Modification records for relocation
 
 def lookup(s):
-    for i in range(0,symtable.__len__()):
+    for i in range(len(symtable)):
         if s == symtable[i].string:
             return i
     return -1
 
-def insert(s, t, a):
-    symtable.append(Entry(s,t,a))
-    return symtable.__len__()-1
+def insert(s, t, a, b=-1):
+    symtable.append(Entry(s, t, a, b))
+    return len(symtable) - 1
 
 def init():
-    for i in range(0,instfile.inst.__len__()):
+    for i in range(len(instfile.inst)):
         insert(instfile.inst[i], instfile.token[i], instfile.opcode[i])
-    for i in range(0,instfile.directives.__len__()):
+    for i in range(len(instfile.directives)):
         insert(instfile.directives[i], instfile.dirtoken[i], instfile.dircode[i])
-    for i in range(0,instfile.inst_ex.__len__()):
+    # Extensions
+    for i in range(len(instfile.inst_ex)):
         insert(instfile.inst_ex[i], instfile.inst_token_ex[i], instfile.inst_ex_opcode[i])
-    for i in range(0,instfile.dir_ex.__len__()):
+    for i in range(len(instfile.dir_ex)):
         insert(instfile.dir_ex[i], instfile.dir_ex_token[i], instfile.dir_ex_code[i])
 
-file = open('input.sic', 'r')
+file = open('inputs/youtube.sic', 'r')
 filecontent = []
 bufferindex = 0
 tokenval = 0
 lineno = 1
 pass1or2 = 1
-locctr = 0
+locctr = [0, 0, 0]      # Location counters for 3 blocks
+block = 0               # Current block (0, 1, or 2)
 lookahead = ''
 startLine = True
 defID = False
 IdIndex = -1
 startAddress = 0
 totalSize = 0
-pass_num = 1
+defaultSize = 0
+cdataSize = 0
+cblckSize = 0
 inst = 0
 
-# Format 4 bits
+# Format 4 bit masks
 Xbit4set = 0x800000
 Bbit4set = 0x400000
 Pbit4set = 0x200000
 Ebit4set = 0x100000
 
-# Addressing mode bits
-Nbitset = 2
-Ibitset = 1
+# Format 3 addressing mode bits (n and i at bits 17 and 16)
+Nbit3set = 0x20000
+Ibit3set = 0x10000
 
-# Format 3 bits
+# Format 4 addressing mode bits
+Nbit4set = 0x2000000
+Ibit4set = 0x1000000
+
+# Format 3 bit masks
 Xbit3set = 0x8000
 Bbit3set = 0x4000
 Pbit3set = 0x2000
-Ebit3set = 0x1000
 
 def is_hex(s):
-    if s[0:2].upper() == '0X':
+    if len(s) > 2 and s[0:2].upper() == '0X':
         try:
             int(s[2:], 16)
             return True
         except ValueError:
             return False
-    else:
-        return False
+    return False
 
 def lexan():
-    global filecontent, tokenval, lineno, bufferindex, locctr, startLine
+    global filecontent, tokenval, lineno, bufferindex, startLine
 
     while True:
         if len(filecontent) == bufferindex:
             return 'EOF'
         elif filecontent[bufferindex] == '\n':
             startLine = True
-            bufferindex = bufferindex + 1
+            bufferindex += 1
             lineno += 1
         else:
             break
+    
     if filecontent[bufferindex].isdigit():
         tokenval = int(filecontent[bufferindex])
-        bufferindex = bufferindex + 1
-        return ('NUM')
+        bufferindex += 1
+        return 'NUM'
     elif is_hex(filecontent[bufferindex]):
         tokenval = int(filecontent[bufferindex][2:], 16)
-        bufferindex = bufferindex + 1
-        return ('NUM')
+        bufferindex += 1
+        return 'NUM'
     elif filecontent[bufferindex] in ['+', '#', ',', '@']:
         c = filecontent[bufferindex]
-        bufferindex = bufferindex + 1
-        return (c)
+        bufferindex += 1
+        return c
     else:
-        # Check if this is a complete C'...' or X'...' literal
+        # Handle C'...' and X'...' literals
         token = filecontent[bufferindex]
         
         if len(token) > 2 and token[0].upper() in ['C', 'X'] and token[1] == "'" and token[-1] == "'":
-            # This is a complete literal like C'HELLO' or X'AB'
-            
             if token[0].upper() == 'C':
-                # C'string' format
-                bytestring = token[2:-1]  # Extract content between quotes
+                bytestring = token[2:-1]
                 bytestringvalue = "".join("%02X" % ord(c) for c in bytestring)
                 bytestring = '1_' + bytestring
                 p = lookup(bytestring)
                 if p == -1:
                     p = insert(bytestring, 'STRING', bytestringvalue)
                 tokenval = p
-                bufferindex = bufferindex + 1
+                bufferindex += 1
                 return 'STRING'
-            else:
-                # X'hex' format
-                bytestring = token[2:-1]  # Extract hex between quotes
+            else:  # X'...'
+                bytestring = token[2:-1]
                 bytestringvalue = bytestring
                 if len(bytestringvalue) % 2 == 1:
                     bytestringvalue = '0' + bytestringvalue
@@ -125,37 +133,38 @@ def lexan():
                 if p == -1:
                     p = insert(bytestring, 'HEX', bytestringvalue)
                 tokenval = p
-                bufferindex = bufferindex + 1
+                bufferindex += 1
                 return 'HEX'
         
-        # Not a literal, process as identifier/keyword
-        p=lookup(filecontent[bufferindex].upper())
+        # Regular identifier/keyword
+        p = lookup(filecontent[bufferindex].upper())
         if p == -1:
-            if defID == True:
-                p=insert(filecontent[bufferindex].upper(),'ID',locctr)
+            if defID:
+                p = insert(filecontent[bufferindex].upper(), 'ID', locctr[block], block)
             else:
-                p=insert(filecontent[bufferindex].upper(),'ID',-1)
+                p = insert(filecontent[bufferindex].upper(), 'ID', -1)
         else:
-            if (symtable[p].att == -1) and (defID == True):
-                symtable[p].att = locctr
+            if symtable[p].att == -1 and defID:
+                symtable[p].att = locctr[block]
+                symtable[p].block = block
         tokenval = p
-        bufferindex = bufferindex + 1
-        return (symtable[p].token)
+        bufferindex += 1
+        return symtable[p].token
 
 def error(s):
     global lineno
-    print('line ' + str(lineno) + ': '+s)
+    print(f'line {lineno}: {s}')
 
 def match(token):
     global lookahead
     if lookahead == token:
-        old_lookahead = lookahead
         lookahead = lexan()
     else:
         error('Syntax error')
 
-def index():
-    global inst, symtable, tokenval
+def index(ext):
+    """Check for indexed addressing (,X)"""
+    global inst
     if lookahead == ',':
         match(',')
         if symtable[tokenval].att != 1:
@@ -164,333 +173,522 @@ def index():
         return True
     return False
 
-
-## REST FUNCTIONS ##
-
-
-def Rest1():
-    if lookahead in ['F1', 'F2', 'F3', '+']:
-        STMT()
-    elif lookahead in ['WORD', 'BYTE', 'RESW', 'RESB']:
-        Data()
-
-
-def Rest2():
-    global locctr, tokenval
-    if lookahead == 'STRING':
-        if pass1or2 == 2:
-            string_value = symtable[tokenval].att
-            string_len = len(string_value) // 2
-        string_size = len(symtable[tokenval].att) // 2  
-        match('STRING')
-        if pass1or2 == 2:
-            print("T %06X %02X %s" % (locctr, string_len, string_value))
-        locctr += string_size
-    elif lookahead == 'HEX':
-        if pass1or2 == 2:
-            hex_value = symtable[tokenval].att
-            hex_len = len(hex_value) // 2
-        hex_size = len(symtable[tokenval].att) // 2  
-        match('HEX')
-        if pass1or2 == 2:
-            print("T %06X %02X %s" % (locctr, hex_len, hex_value))
-        locctr += hex_size
-
-
-# rest2 for SIC/XE -> ID INDEX | NUM INDEX | # rest4 | @ rest4 | ε
-def rest2_sicxe(is_format4):
-    global inst
+def rest6(ext):
+    """Handle operands for immediate (#) and indirect (@) addressing"""
+    global inst, baseValue, block, locctr
     
-    # if next token starts a new line, no operand
-    if lookahead in ['WORD', 'BYTE', 'RESW', 'RESB', 'END', 'EOF']:
-        # ε 
-        return
-    
-    # is it a label (new line) or an operand?
-    # If ID appears at locctr (being defined now), it's a label, not operand
-    if lookahead == 'ID':
-        id_att = symtable[tokenval].att
-        if id_att == -1 or id_att == locctr:
-            # ε
-            return
-    
-    if lookahead == 'ID':  # Simple addressing 
-        if pass1or2 == 2:
-            inst += symtable[tokenval].att
-        match('ID')
-        indexed = index()
-        if pass1or2 == 2 and indexed:
-            if not is_format4:
-                inst += Xbit3set
-            else:
-                inst += Xbit4set
-    
-    elif lookahead == 'NUM':  # Simple addressing 
-        if pass1or2 == 2:
-            inst += tokenval
+    if lookahead == 'NUM':
+        num_val = tokenval
         match('NUM')
-        indexed = index()
-        if pass1or2 == 2 and indexed:
-            if not is_format4:
-                inst += Xbit3set
-            else:
-                inst += Xbit4set
+        if pass1or2 == 2:
+            if ext:  # Format 4
+                inst += num_val
+            else:  # Format 3
+                if -2048 <= num_val <= 2047:
+                    inst += num_val
+                else:
+                    current_pc = get_actual_address(block, locctr[block])
+                    disp = num_val - current_pc
+                    if -2048 <= disp <= 2047:
+                        inst += Pbit3set
+                        inst += disp if disp >= 0 else (disp & 0xFFF)
+                    else:
+                        if baseValue < 0:
+                            error(f"Address {num_val:X} out of PC range and BASE not set")
+                        else:
+                            disp = num_val - baseValue
+                            if 0 <= disp <= 4095:
+                                inst += Bbit3set
+                                inst += disp
+                            else:
+                                error(f"Address {num_val:X} out of range")
+    
+    elif lookahead == 'ID':
+        target_addr = symtable[tokenval].att
+        match('ID')
+        if pass1or2 == 2:
+            if ext:  # Format 4
+                inst += target_addr
+                # Add modification record
+                actual_addr = get_actual_address(block, locctr[block] - 4)
+                modArray.append(actual_addr + 1)
+            else:  # Format 3 - PC-relative
+                current_pc = get_actual_address(block, locctr[block])
+                disp = target_addr - current_pc
+                if -2048 <= disp <= 2047:
+                    inst += Pbit3set
+                    inst += disp if disp >= 0 else (disp & 0xFFF)
+                else:
+                    if baseValue < 0:
+                        error(f"Address {target_addr:X} out of PC range and BASE not set")
+                    else:
+                        disp = target_addr - baseValue
+                        if 0 <= disp <= 4095:
+                            inst += Bbit3set
+                            inst += disp
+                        else:
+                            error(f"Address {target_addr:X} out of range")
+
+def rest3(ext):
+    """Handle Format 3/4 operands with all addressing modes"""
+    global inst, baseValue, block, locctr
+    
+    if lookahead == 'NUM':  # Simple addressing with number
+        num_val = tokenval
+        match('NUM')
+        indexed = index(ext)
+        
+        if pass1or2 == 2:
+            if ext:  # Format 4
+                inst += Nbit4set + Ibit4set
+                inst += num_val
+                if indexed:
+                    inst += Xbit4set
+            else:  # Format 3
+                inst += Nbit3set + Ibit3set
+                if -2048 <= num_val <= 2047:
+                    inst += num_val
+                else:
+                    current_pc = get_actual_address(block, locctr[block])
+                    disp = num_val - current_pc
+                    if -2048 <= disp <= 2047:
+                        inst += Pbit3set
+                        inst += disp if disp >= 0 else (disp & 0xFFF)
+                    else:
+                        if baseValue < 0:
+                            error(f"Address {num_val:X} out of PC range and BASE not set")
+                        else:
+                            disp = num_val - baseValue
+                            if 0 <= disp <= 4095:
+                                inst += Bbit3set
+                                inst += disp
+                            else:
+                                error(f"Address {num_val:X} out of range")
+                if indexed:
+                    inst += Xbit3set
+    
+    elif lookahead == 'ID':  # Simple addressing with symbol
+        target_addr = symtable[tokenval].att
+        match('ID')
+        indexed = index(ext)
+        
+        if pass1or2 == 2:
+            if ext:  # Format 4
+                inst += Nbit4set + Ibit4set
+                inst += target_addr
+                if indexed:
+                    inst += Xbit4set
+                # Add modification record using actual address
+                actual_addr = get_actual_address(block, locctr[block] - 4)
+                modArray.append(actual_addr + 1)
+            else:  # Format 3 - PC-relative
+                inst += Nbit3set + Ibit3set
+                current_pc = get_actual_address(block, locctr[block])
+                disp = target_addr - current_pc
+                if -2048 <= disp <= 2047:
+                    inst += Pbit3set
+                    inst += disp if disp >= 0 else (disp & 0xFFF)
+                else:
+                    if baseValue < 0:
+                        error(f"Address {target_addr:X} out of PC range and BASE not set")
+                    else:
+                        disp = target_addr - baseValue
+                        if 0 <= disp <= 4095:
+                            inst += Bbit3set
+                            inst += disp
+                        else:
+                            error(f"Address {target_addr:X} out of range")
+                if indexed:
+                    inst += Xbit3set
     
     elif lookahead == '#':  # Immediate addressing
         match('#')
         if pass1or2 == 2:
-            # Set i bit only (immediate)
-            if not is_format4:
-                inst = (inst & ~(Nbitset << 16)) | (Ibitset << 16) # It turns off the "n" bit and turns on the "i" bit so the instruction uses immediate addressing
-            else:
-                inst = (inst & ~(Nbitset << 24)) | (Ibitset << 24)
-        Rest4()
+            inst += Ibit4set if ext else Ibit3set
+        rest6(ext)
     
     elif lookahead == '@':  # Indirect addressing
         match('@')
         if pass1or2 == 2:
-            # Set n bit only (indirect)
-            if not is_format4:
-                inst = (inst & ~(Ibitset << 16)) | (Nbitset << 16) # turns off the "i" bit and turns on the "n" bit 
-            else:
-                inst = (inst & ~(Ibitset << 24)) | (Nbitset << 24)
-        Rest4()
+            inst += Nbit4set if ext else Nbit3set
+        rest6(ext)
 
-
-# rest4 -> ID | NUM (for immediate and indirect addressing)
-def Rest4():
-    global inst, tokenval
-    if lookahead == 'ID':
-        if pass1or2 == 2:
-            inst += symtable[tokenval].att
-        match('ID')
-    elif lookahead == 'NUM':
-        if pass1or2 == 2:
-            inst += tokenval
-        match('NUM')
-
-
-def Rest5():
-    global inst, tokenval
+def rest4(format5):
+    """Handle Format 2 second register"""
+    global inst
     if lookahead == ',':
         match(',')
         if pass1or2 == 2:
-            inst += symtable[tokenval].att  
-        match('REG')
-
-
-# Format 3/4
-def stmt_f3_f4(is_format4):
-    global inst, locctr, tokenval
-    
-    format_size = 4 if is_format4 else 3
-    
-    if pass1or2 == 2:
-        inst = symtable[tokenval].att << (16 if not is_format4 else 24)  # opcode
-        # Set n and i bits for simple addressing (both 1)
-        if not is_format4:
-            if symtable[tokenval].att == 0x4C:  # RSUB special case
-                inst += 0  # Set both n and i bits to 0 (NOT SURE)
+            if format5:
+                inst += symtable[tokenval].att << 8
             else:
-                inst += (Nbitset << 16) | (Ibitset << 16)
-        else:
-            inst += (Nbitset << 24) | (Ibitset << 24)
-            inst += Ebit4set  # Set e bit for format 4
-    
-    if is_format4:
-        match('+')
-    match('F3')
-    locctr += format_size
-    
-    rest2_sicxe(is_format4)
-    
-    if pass1or2 == 2:
-        if is_format4:
-            print("T %06X 04 %08X" % (locctr - 4, inst))
-        else:
-            print("T %06X 03 %06X" % (locctr - 3, inst))
+                inst += symtable[tokenval].att
+        match('REG')
+        if format5:
+            rest4(False)
+
+def get_actual_address(block_num, block_locctr):
+    """Calculate actual address accounting for block concatenation"""
+    global defaultSize, cdataSize
+    if block_num == 0:
+        return block_locctr
+    elif block_num == 1:
+        return block_locctr + defaultSize
+    else:  # block_num == 2
+        return block_locctr + defaultSize + cdataSize
 
 
 def STMT():
-    global lookahead, inst, locctr, tokenval
-
-    # Format 1
-    if lookahead == 'F1':
+    """Generate instruction code"""
+    global inst, locctr, block, modArray
+    
+    if lookahead == 'F1':  # Format 1
         if pass1or2 == 2:
-            inst = symtable[tokenval].att  
+            inst = symtable[tokenval].att
         match('F1')
-        locctr += 1
+        locctr[block] += 1
         if pass1or2 == 2:
-            print("T %06X 01 %02X" % (locctr - 1, inst))
-
-    # Format 2
-    elif lookahead == 'F2':
+            actual_addr = get_actual_address(block, locctr[block]-1)
+            print(f"T {actual_addr:06X} 01 {inst:02X}")
+    
+    elif lookahead == 'F2':  # Format 2
         if pass1or2 == 2:
-            inst = symtable[tokenval].att << 8  
+            inst = symtable[tokenval].att << 8
         match('F2')
-        locctr += 2
-    
-        # First register
+        locctr[block] += 2
         if pass1or2 == 2:
-            inst += (symtable[tokenval].att << 4)  
-        reg1 = tokenval
+            inst += symtable[tokenval].att << 4
         match('REG')
-    
-        # rest5: optional second register
-        Rest5()
-    
+        rest4(False)
         if pass1or2 == 2:
-            print("T %06X 02 %04X" % (locctr - 2, inst))
+            actual_addr = get_actual_address(block, locctr[block]-2)
+            print(f"T {actual_addr:06X} 02 {inst:04X}")
+    
+    elif lookahead == 'F3':  # Format 3
+        instr_index = tokenval
+        if pass1or2 == 2:
+            inst = symtable[tokenval].att << 16
+        match('F3')
+        locctr[block] += 3
+        # Check if this is RSUB (only F3 instruction with no operand)
+        if symtable[instr_index].string == 'RSUB':
+            if pass1or2 == 2:
+                inst += Nbit3set + Ibit3set
+                actual_addr = get_actual_address(block, locctr[block]-3)
+                print(f"T {actual_addr:06X} 03 {inst:06X}")
+        else:
+            rest3(False)
+            if pass1or2 == 2:
+                actual_addr = get_actual_address(block, locctr[block]-3)
+                print(f"T {actual_addr:06X} 03 {inst:06X}")
+    
+    elif lookahead == '+':  # Format 4
+        match('+')
+        if pass1or2 == 2:
+            inst = symtable[tokenval].att << 24
+            inst += Ebit4set
+        match('F3')
+        locctr[block] += 4
+        rest3(True)
+        if pass1or2 == 2:
+            actual_addr = get_actual_address(block, locctr[block]-4)
+            print(f"T {actual_addr:06X} 04 {inst:08X}")
 
-    # Format 3
-    elif lookahead == 'F3':
-        stmt_f3_f4(False)  
+    # STMT -> .. | F5 rest33
+    # rest33 -> Reg, ID index | ID, Reg index
+    elif lookahead == 'F5':
+        if pass1or2 == 2:
+            #opcode
+            inst = (symtable[tokenval].att >> 1) << 25
+        match('F5')
+        locctr[block] += 4
+        rest33()
 
-    # Format 4
-    elif lookahead == '+':
-        stmt_f3_f4(True)  
-
-    else:
-        error('Expected instruction')
+def rest33():
+    global inst, baseValue
+    
+    if lookahead == 'REG':
+        # REG, ID format (existing code is correct)
+        if pass1or2 == 2:
+            inst += symtable[tokenval].att << 16
+        match('REG')
+        match(',')
+        var = symtable[tokenval].att
+        match('ID')
+        indexed = index(False)
+        if pass1or2 == 2:
+            pc = get_actual_address(block, locctr[block])
+            disp = var - pc
+            if -2048 <= disp <= 2047:
+                inst += (0x1 << 21)  # P-bit
+                inst += disp if disp >= 0 else (disp & 0xFFFF)
+            else:
+                if baseValue < 0:
+                    error(f"Address out of PC range and BASE not set")
+                else:
+                    disp = var - baseValue
+                    if 0 <= disp <= 65535:
+                        inst += (0x1 << 22)  # B-bit
+                        inst += disp
+                    else:
+                        error(f"Address out of range")
+            if indexed:
+                inst += (0x1 << 23)  # X-bit
+            actual_addr = get_actual_address(block, locctr[block]-4)
+            print(f"T {actual_addr:06X} 04 {inst:08X}")
+    
+    elif lookahead == 'ID':
+        # ID, REG format - ADD THIS!
+        var = symtable[tokenval].att
+        match('ID')
+        match(',')
+        if pass1or2 == 2:
+            inst += symtable[tokenval].att  # Register in bits 3-0
+        match('REG')
+        indexed = index(False)
+        
+        if pass1or2 == 2:
+            pc = get_actual_address(block, locctr[block])
+            disp = var - pc
+            if -2048 <= disp <= 2047:
+                inst += (0x1 << 21)  # P-bit
+                inst += (disp if disp >= 0 else (disp & 0xFFFF)) << 4
+            else:
+                if baseValue < 0:
+                    error(f"Address out of PC range and BASE not set")
+                else:
+                    disp = var - baseValue
+                    if 0 <= disp <= 65535:
+                        inst += (0x1 << 22)  # B-bit
+                        inst += disp << 4
+                    else:
+                        error(f"Address out of range")
+            if indexed:
+                inst += (0x1 << 23)  # X-bit
+            actual_addr = get_actual_address(block, locctr[block]-4)
+            print(f"T {actual_addr:06X} 04 {inst:08X}")  
 
 
 def Data():
-    global locctr, tokenval
+    """Handle data directives"""
+    global locctr, tokenval, block
+    
     if lookahead == 'WORD':
         match('WORD')
         if pass1or2 == 2:
             word_value = tokenval
         match('NUM')
         if pass1or2 == 2:
-            print("T %06X 03 %06X" % (locctr, word_value))
-        locctr += 3
-
+            actual_addr = get_actual_address(block, locctr[block])
+            print(f"T {actual_addr:06X} 03 {word_value:06X}")
+        locctr[block] += 3
+    
     elif lookahead == 'RESW':
         match('RESW')
         resw_count = tokenval
         match('NUM')
-        locctr += 3 * resw_count
-
+        locctr[block] += 3 * resw_count
+    
     elif lookahead == 'RESB':
         match('RESB')
         resb_count = tokenval
         match('NUM')
-        locctr += resb_count
-
+        locctr[block] += resb_count
+    
     elif lookahead == 'BYTE':
         match('BYTE')
-        Rest2()
+        if lookahead == 'STRING':
+            if pass1or2 == 2:
+                string_value = symtable[tokenval].att
+                string_len = len(string_value) // 2
+                actual_addr = get_actual_address(block, locctr[block])
+                print(f"T {actual_addr:06X} {string_len:02X} {string_value}")
+            string_size = len(symtable[tokenval].att) // 2
+            match('STRING')
+            locctr[block] += string_size
+        elif lookahead == 'HEX':
+            if pass1or2 == 2:
+                hex_value = symtable[tokenval].att
+                hex_len = len(hex_value) // 2
+                actual_addr = get_actual_address(block, locctr[block])
+                print(f"T {actual_addr:06X} {hex_len:02X} {hex_value}")
+            hex_size = len(symtable[tokenval].att) // 2
+            match('HEX')
+            locctr[block] += hex_size
 
+def Rest1():
+    """Dispatch to instruction or data"""
+    if lookahead in ['F1', 'F2', 'F3', '+', 'F5']:
+        STMT()
+    elif lookahead in ['WORD', 'BYTE', 'RESW', 'RESB']:
+        Data()
+
+def rest10():
+    """Handle USE directive"""
+    global block
+    if lookahead == 'CDATA':
+        block = 1
+        match('CDATA')
+    elif lookahead == 'CBLCK':
+        block = 2
+        match('CBLCK')
+    else:
+        block = 0
 
 def Header():
+    """Process START directive"""
     global lookahead, defID, IdIndex, startAddress, locctr, totalSize, tokenval
+    
     lookahead = lexan()
-
     defID = True
     IdIndex = tokenval
     match('ID')
     defID = False
-
+    
     match('START')
-    startAddress = locctr = symtable[IdIndex].att = tokenval
+    startAddress = locctr[0] = locctr[1] = locctr[2] = tokenval
+    symtable[IdIndex].att = tokenval
     match('NUM')
-
+    
     if pass1or2 == 2:
-        print("H %-6s %06X %06X" % (symtable[IdIndex].string, startAddress, totalSize))
-
+        print(f"H {symtable[IdIndex].string:<6s} {startAddress:06X} {totalSize:06X}")
 
 def Body():
-    global defID, inst
+    """Process program body"""
+    global defID, inst, baseValue, block
+    
     defID = True
-
+    
     if lookahead == 'END':
         return
-
+    
     if pass1or2 == 2:
         inst = 0
-
+    
     if lookahead == 'ID':
         if symtable[tokenval].att == -1:
-            symtable[tokenval].att = locctr
+            symtable[tokenval].att = locctr[block]
+            symtable[tokenval].block = block
         match('ID')
         defID = False
         Rest1()
         Body()
-
-    elif lookahead in ['F1', 'F2', 'F3', '+']:
+    
+    elif lookahead in ['F1', 'F2', 'F3', '+', 'F5']:
         defID = False
         if pass1or2 == 2:
             inst = 0
         STMT()
         Body()
-
+    
+    elif lookahead in ['WORD', 'BYTE', 'RESW', 'RESB']:
+        defID = False
+        Data()
+        Body()
+    
+    elif lookahead == 'BASE':
+        defID = False
+        match('BASE')
+        if pass1or2 == 2:
+            baseValue = symtable[tokenval].att
+        match('ID')
+        Body()
+    
+    elif lookahead == 'USE':
+        defID = False
+        match('USE')
+        rest10()
+        Body()
+    
     else:
         if lookahead != 'END' and lookahead != 'EOF':
-            print(f"DEBUG: Unexpected lookahead: '{lookahead}', tokenval={tokenval}")
-            if lookahead and tokenval < len(symtable):
-                print(f"DEBUG: symtable[{tokenval}] = {symtable[tokenval].string}")
             error("Syntax error in Body()")
 
-
 def Tail():
-    global totalSize, startAddress
+    """Process END directive"""
+    global totalSize, startAddress, defaultSize, cdataSize, cblckSize
+    
     match('END')
+    end_symbol_index = tokenval  # Save the symbol index
     match('ID')
-    totalSize = locctr - startAddress
+    
+# Calculate sizes - subtract startAddress!
+    defaultSize = locctr[0] - startAddress  # Not locctr[0]!
+    cdataSize = locctr[1] - startAddress    # Not locctr[1]!
+    cblckSize = locctr[2] - startAddress    # Not locctr[2]!
+    totalSize = defaultSize + cdataSize + cblckSize
+    
+    # Adjust symbol addresses based on blocks
+    if pass1or2 == 1:
+        for i in range(len(symtable)):
+            if symtable[i].token == 'ID':
+                if symtable[i].block == 1:
+                    symtable[i].att += defaultSize
+                elif symtable[i].block == 2:
+                    symtable[i].att += defaultSize + cdataSize
+    
     if pass1or2 == 2:
-        print("E %06X" % startAddress)
+        # Print modification records
+        for addr in modArray:
+            print(f"M {addr:06X} 05")
+        # Use the END symbol's address, not startAddress
+        end_address = symtable[end_symbol_index].att
+        print(f"E {end_address:06X}")
 
 def Parser():
+    """Main parser"""
     Header()
     Body()
     Tail()
 
 def main():
-    global file, filecontent, locctr, pass1or2, bufferindex, lineno
+    global file, filecontent, locctr, pass1or2, bufferindex, lineno, baseValue, modArray, block
     init()
-
+    
     w = file.read()
     
-    # Protect C'...' and X'...' literals before splitting
-    # Replace them with placeholders that won't be split
+    # Protect literals
     import re as regex_module
     literals = []
     
     def protect_literal(match):
-        """Replace literal with placeholder"""
         literals.append(match.group(0))
         return f'__LITERAL_{len(literals)-1}__'
     
-    # Protect C'...' and X'...' (case insensitive)
     w_protected = regex_module.sub(r"[CcXx]'[^']*'", protect_literal, w)
-    
     filecontent = re.split(r"([\W])", w_protected)
     
-    # Restore literals in filecontent
+    # Restore literals
     for i in range(len(filecontent)):
         if filecontent[i].startswith('__LITERAL_'):
             idx = int(filecontent[i].replace('__LITERAL_', '').replace('__', ''))
             filecontent[i] = literals[idx]
     
-    # Clean up whitespace
-    i=0
+    # Clean whitespace
+    i = 0
     while True:
-        while (filecontent[i] == ' ') or (filecontent[i] == '') or (filecontent[i] == '\t'):
+        while i < len(filecontent) and filecontent[i] in [' ', '', '\t']:
             del filecontent[i]
             if len(filecontent) == i:
                 break
         i += 1
         if len(filecontent) <= i:
             break
-    if filecontent[len(filecontent)-1] != '\n':
+    
+    if filecontent[-1] != '\n':
         filecontent.append('\n')
-
-    for pass1or2 in range(1,3):
+    
+    # Two-pass assembly
+    for pass1or2 in range(1, 3):
+        baseValue = -1
+        modArray = []
+        block = 0
         Parser()
         bufferindex = 0
-        locctr = 0
+        locctr = [0, 0, 0]
         lineno = 1
-
+    
     file.close()
 
-main()
+if __name__ == '__main__':
+    main()
