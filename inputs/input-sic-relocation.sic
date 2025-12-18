@@ -1,6 +1,6 @@
 prog    start   0
         lda     alpha
         sta     beta
-alpha   word    5
+alpha   word    20
 beta    resw    1
         end     prog

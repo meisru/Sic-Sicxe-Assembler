@@ -1,0 +1,6 @@
+MTest start 0
+outlp madd s, y
+      msub z, s
+y word 3
+z word 1
+end outlp

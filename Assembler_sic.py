@@ -40,7 +40,7 @@ def init():
         insert(instfile.dir_ex[i], instfile.dir_ex_token[i], instfile.dir_ex_code[i])
 
 
-file = open('inputs/lab1.sic', 'r')  #open the user input file (here called input.sic)
+file = open('inputs/quiz.sic', 'r')  #open the user input file (here called input.sic)
 filecontent = []                # the input file will be parsed to
 bufferindex = 0
 tokenval = 0
@@ -201,6 +201,8 @@ def index():
 def Rest1():
     if lookahead == 'F3':
         STMT()
+    elif lookahead == 'F4':  # NEW FORMAT after a label
+        STMT()
     elif lookahead in ['WORD', 'BYTE', 'RESW', 'RESB']:
         Data()
 
@@ -228,22 +230,43 @@ def Rest2():
 def STMT():
     global inst, locctr, tokenval, modification_records
     instruction_address = locctr  # Save instruction address
-    if pass1or2 == 2:
-        inst = symtable[tokenval].att << 16  
-    match('F3')
-    locctr += 3  
-    operand_index = tokenval  # Save operand index before match
-    if pass1or2 == 2:
-        inst += symtable[tokenval].att  
-    match('ID')
-    indexed = index()
-    if pass1or2 == 2:
-        if indexed:
-            inst += Xbit3set  # set X bit
-        # Add modification record for this instruction (address field needs relocation)
-        # SIC uses 15-bit addresses = 4 half-bytes (not including opcode/flag bits)
-        modification_records.append((instruction_address + 1, 4))  # +1 to skip opcode byte, 4 half-bytes
-        print("T %06X 03 %06X" % (instruction_address, inst))
+    
+    if lookahead == 'F4':
+        if pass1or2 == 2:
+            inst = symtable[tokenval].att << 32
+        match('F4')
+        locctr += 5
+        if pass1or2 == 2:
+            inst = tokenval << 30
+        match('NUM')
+        match(',')
+        if pass1or2 == 2:
+            inst += symtable[tokenval].att << 15
+        match('ID')
+        match(',')
+        if pass1or2 == 2:
+            inst += symtable[tokenval].att 
+        match('ID')
+        print("T %06X 05 %10X" % (locctr - 5, inst))
+    
+    else:
+        if pass1or2 == 2:
+            inst = symtable[tokenval].att << 16  
+        match('F3')
+        locctr += 3  
+        operand_index = tokenval  # Save operand index before match
+        if pass1or2 == 2:
+            inst += symtable[tokenval].att  
+        match('ID')
+        indexed = index()
+        if pass1or2 == 2:
+            if indexed:
+                inst += Xbit3set  # set X bit
+            # Add modification record for this instruction (address field needs relocation)
+            # SIC uses 15-bit addresses = 4 half-bytes (not including opcode/flag bits)
+            modification_records.append((instruction_address + 1, 4))  # +1 to skip opcode byte, 4 half-bytes
+            print("T %06X 03 %06X" % (locctr - 3, inst))
+
 
 
 def Data():
@@ -314,6 +337,13 @@ def Body():
 
     elif lookahead == 'F3':  # an instruction without a label
         defID = False  # no label being defined
+        if pass1or2 == 2:
+            inst = 0
+        STMT()
+        Body()
+
+    elif lookahead == 'F4':  # NEW FORMAT without a label
+        defID = False
         if pass1or2 == 2:
             inst = 0
         STMT()

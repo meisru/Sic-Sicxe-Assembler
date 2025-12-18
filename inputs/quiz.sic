@@ -1,0 +1,6 @@
+quiz start
+mov 0x01,z,y
+mov 0x02,z,y
+y word 20
+z word 11 
+end quiz

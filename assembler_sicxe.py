@@ -1,5 +1,4 @@
 # SIC/XE Assembler with PC-relative, Base-relative, Relocation, and Program Blocks
-# Based on proven implementation patterns
 
 import instfile
 import re
@@ -17,7 +16,7 @@ modArray = []           # Modification records for relocation
 
 def lookup(s):
     for i in range(len(symtable)):
-        if s == symtable[i].string:
+        if s == symtable[i].string: 
             return i
     return -1
 
@@ -36,7 +35,7 @@ def init():
     for i in range(len(instfile.dir_ex)):
         insert(instfile.dir_ex[i], instfile.dir_ex_token[i], instfile.dir_ex_code[i])
 
-file = open('inputs/youtube.sic', 'r')
+file = open('inputs/exam2.sic', 'r')
 filecontent = []
 bufferindex = 0
 tokenval = 0
@@ -394,51 +393,38 @@ def STMT():
             actual_addr = get_actual_address(block, locctr[block]-4)
             print(f"T {actual_addr:06X} 04 {inst:08X}")
 
-    # STMT -> .. | F5 rest33
+    # STMT -> .. | F7 rest12
     # rest33 -> Reg, ID index | ID, Reg index
-    elif lookahead == 'F5':
+    elif lookahead == 'F7':
         if pass1or2 == 2:
             #opcode
             inst = (symtable[tokenval].att >> 1) << 25
-        match('F5')
+        match('F7')
         locctr[block] += 4
-        rest33()
+        rest12()
 
-def rest33():
+def rest12():
     global inst, baseValue
     
     if lookahead == 'REG':
-        # REG, ID format (existing code is correct)
         if pass1or2 == 2:
             inst += symtable[tokenval].att << 16
         match('REG')
         match(',')
+
         var = symtable[tokenval].att
         match('ID')
         indexed = index(False)
         if pass1or2 == 2:
-            pc = get_actual_address(block, locctr[block])
-            disp = var - pc
-            if -2048 <= disp <= 2047:
-                inst += (0x1 << 21)  # P-bit
-                inst += disp if disp >= 0 else (disp & 0xFFFF)
-            else:
-                if baseValue < 0:
-                    error(f"Address out of PC range and BASE not set")
-                else:
-                    disp = var - baseValue
-                    if 0 <= disp <= 65535:
-                        inst += (0x1 << 22)  # B-bit
-                        inst += disp
-                    else:
-                        error(f"Address out of range")
+            inst += var
             if indexed:
                 inst += (0x1 << 23)  # X-bit
             actual_addr = get_actual_address(block, locctr[block]-4)
             print(f"T {actual_addr:06X} 04 {inst:08X}")
     
     elif lookahead == 'ID':
-        # ID, REG format - ADD THIS!
+        if pass1or2 == 2:
+            inst += (0x1 << 24)
         var = symtable[tokenval].att
         match('ID')
         match(',')
@@ -448,21 +434,7 @@ def rest33():
         indexed = index(False)
         
         if pass1or2 == 2:
-            pc = get_actual_address(block, locctr[block])
-            disp = var - pc
-            if -2048 <= disp <= 2047:
-                inst += (0x1 << 21)  # P-bit
-                inst += (disp if disp >= 0 else (disp & 0xFFFF)) << 4
-            else:
-                if baseValue < 0:
-                    error(f"Address out of PC range and BASE not set")
-                else:
-                    disp = var - baseValue
-                    if 0 <= disp <= 65535:
-                        inst += (0x1 << 22)  # B-bit
-                        inst += disp << 4
-                    else:
-                        error(f"Address out of range")
+            inst += var << 4
             if indexed:
                 inst += (0x1 << 23)  # X-bit
             actual_addr = get_actual_address(block, locctr[block]-4)
@@ -518,7 +490,7 @@ def Data():
 
 def Rest1():
     """Dispatch to instruction or data"""
-    if lookahead in ['F1', 'F2', 'F3', '+', 'F5']:
+    if lookahead in ['F1', 'F2', 'F3', '+', 'F7']:
         STMT()
     elif lookahead in ['WORD', 'BYTE', 'RESW', 'RESB']:
         Data()
@@ -574,7 +546,7 @@ def Body():
         Rest1()
         Body()
     
-    elif lookahead in ['F1', 'F2', 'F3', '+', 'F5']:
+    elif lookahead in ['F1', 'F2', 'F3', '+', 'F7']:
         defID = False
         if pass1or2 == 2:
             inst = 0

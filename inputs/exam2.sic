@@ -1,0 +1,4 @@
+prog start 0
+yy
+jeq #yy
+end prog

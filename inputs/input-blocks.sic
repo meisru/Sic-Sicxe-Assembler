@@ -1,15 +1,15 @@
-prog start 0x100
-   add xx
-   use cblck
-yy resw 1000
-   use
-   sta yy,x 
-   USE CDATA
-tt byte c'abcd'
-zz byte x'abcd'
-   USE
-   lda xx 
-xx word 5
-yy resb 2
-xx word 4
-   end prog
+PROG    START   0x100 | block: 0
+        ADD     XX    | 000100 --> 000103
+        USE     CBLCK | block: 2
+YY      RESW    1000. | 000100 --> 000AB8
+        USE           | block: 0
+        STA     YY,X  | 000103 --> 000106
+        USE     CDATA | block: 1
+TT      BYTE    C'abcd' | 000100
+ZZ      BYTE    X'ABCD' | 000104 --> 000106
+        USE            | block: 0
+        LDA     XX    | 000106
+XX      WORD    5     | 000109
+ZZ2     RESB    2.    | 00010C
+YY2     WORD    4.     | 00010E
+        END     PROG.   | 000111
