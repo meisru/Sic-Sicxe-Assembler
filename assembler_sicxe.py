@@ -391,54 +391,7 @@ def STMT():
         rest3(True)
         if pass1or2 == 2:
             actual_addr = get_actual_address(block, locctr[block]-4)
-            print(f"T {actual_addr:06X} 04 {inst:08X}")
-
-    # STMT -> .. | F7 rest12
-    # rest33 -> Reg, ID index | ID, Reg index
-    elif lookahead == 'F7':
-        if pass1or2 == 2:
-            #opcode
-            inst = (symtable[tokenval].att >> 1) << 25
-        match('F7')
-        locctr[block] += 4
-        rest12()
-
-def rest12():
-    global inst, baseValue
-    
-    if lookahead == 'REG':
-        if pass1or2 == 2:
-            inst += symtable[tokenval].att << 16
-        match('REG')
-        match(',')
-
-        var = symtable[tokenval].att
-        match('ID')
-        indexed = index(False)
-        if pass1or2 == 2:
-            inst += var
-            if indexed:
-                inst += (0x1 << 23)  # X-bit
-            actual_addr = get_actual_address(block, locctr[block]-4)
-            print(f"T {actual_addr:06X} 04 {inst:08X}")
-    
-    elif lookahead == 'ID':
-        if pass1or2 == 2:
-            inst += (0x1 << 24)
-        var = symtable[tokenval].att
-        match('ID')
-        match(',')
-        if pass1or2 == 2:
-            inst += symtable[tokenval].att  # Register in bits 3-0
-        match('REG')
-        indexed = index(False)
-        
-        if pass1or2 == 2:
-            inst += var << 4
-            if indexed:
-                inst += (0x1 << 23)  # X-bit
-            actual_addr = get_actual_address(block, locctr[block]-4)
-            print(f"T {actual_addr:06X} 04 {inst:08X}")  
+            print(f"T {actual_addr:06X} 04 {inst:08X}") 
 
 
 def Data():
@@ -490,7 +443,7 @@ def Data():
 
 def Rest1():
     """Dispatch to instruction or data"""
-    if lookahead in ['F1', 'F2', 'F3', '+', 'F7']:
+    if lookahead in ['F1', 'F2', 'F3', '+']:
         STMT()
     elif lookahead in ['WORD', 'BYTE', 'RESW', 'RESB']:
         Data()
@@ -546,7 +499,7 @@ def Body():
         Rest1()
         Body()
     
-    elif lookahead in ['F1', 'F2', 'F3', '+', 'F7']:
+    elif lookahead in ['F1', 'F2', 'F3', '+']:
         defID = False
         if pass1or2 == 2:
             inst = 0

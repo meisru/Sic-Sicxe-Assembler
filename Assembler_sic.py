@@ -1,8 +1,3 @@
-# to debug, add a breakpoint after init() line 194
-# then evaluate expression, she clicked something in debug mode
-# in expression field she wrote symtable
-# then it showed different values from 0 t0 73 or more if extensions were added
-
 import instfile
 import re
 
@@ -40,7 +35,7 @@ def init():
         insert(instfile.dir_ex[i], instfile.dir_ex_token[i], instfile.dir_ex_code[i])
 
 
-file = open('inputs/quiz.sic', 'r')  #open the user input file (here called input.sic)
+file = open('inputs/input.sic', 'r')  #open the user input file (here called input.sic)
 filecontent = []                # the input file will be parsed to
 bufferindex = 0
 tokenval = 0
@@ -226,47 +221,26 @@ def Rest2():
             print("T %06X %02X %s" % (locctr, hex_len, hex_value))
         locctr += (symtable[tokenval].att).__len__() // 2
 
-# see slide 26 - ch2
+
 def STMT():
     global inst, locctr, tokenval, modification_records
     instruction_address = locctr  # Save instruction address
-    
-    if lookahead == 'F4':
-        if pass1or2 == 2:
-            inst = symtable[tokenval].att << 32
-        match('F4')
-        locctr += 5
-        if pass1or2 == 2:
-            inst = tokenval << 30
-        match('NUM')
-        match(',')
-        if pass1or2 == 2:
-            inst += symtable[tokenval].att << 15
-        match('ID')
-        match(',')
-        if pass1or2 == 2:
-            inst += symtable[tokenval].att 
-        match('ID')
-        print("T %06X 05 %10X" % (locctr - 5, inst))
-    
-    else:
-        if pass1or2 == 2:
-            inst = symtable[tokenval].att << 16  
-        match('F3')
-        locctr += 3  
-        operand_index = tokenval  # Save operand index before match
-        if pass1or2 == 2:
-            inst += symtable[tokenval].att  
-        match('ID')
-        indexed = index()
-        if pass1or2 == 2:
-            if indexed:
-                inst += Xbit3set  # set X bit
-            # Add modification record for this instruction (address field needs relocation)
-            # SIC uses 15-bit addresses = 4 half-bytes (not including opcode/flag bits)
-            modification_records.append((instruction_address + 1, 4))  # +1 to skip opcode byte, 4 half-bytes
-            print("T %06X 03 %06X" % (locctr - 3, inst))
-
+    if pass1or2 == 2:
+        inst = symtable[tokenval].att << 16  
+    match('F3')
+    locctr += 3  
+    operand_index = tokenval  # Save operand index before match
+    if pass1or2 == 2:
+        inst += symtable[tokenval].att  
+    match('ID')
+    indexed = index()
+    if pass1or2 == 2:
+        if indexed:
+            inst += Xbit3set  # set X bit
+        # Add modification record for this instruction (address field needs relocation)
+        # SIC uses 15-bit addresses = 4 half-bytes (not including opcode/flag bits)
+        modification_records.append((instruction_address + 1, 4))  # +1 to skip opcode byte, 4 half-bytes
+        print("T %06X 03 %06X" % (locctr - 3, inst))
 
 
 def Data():
@@ -298,7 +272,6 @@ def Data():
 
 
 # header -> ID START NUM 
-# see slide 26 - ch2
 def Header():
     global lookahead, defID, IdIndex, startAddress, locctr, totalSize, tokenval
     lookahead = lexan()
@@ -418,27 +391,3 @@ def main():
     # print_symtable()
 
 main()
-
-    ## add inside main for debugging purpose
-    # while True:
-    #     lookahead=lexan()
-    #     if lookahead == 'EOF':
-    #         break
-    #     else:
-    #         print(lookahead, end=' ')
-    # example output: ID START NUM F3 ID F3 ID ID WORD NUM ID RESW NUM END ID
-    # ID - "prog" (identifier/label)
-    # START - "start" (directive from symbol table)
-    # NUM - "0" (number)
-    # F3 - "lda" (Format 3 instruction from symbol table)
-    # ID - "xx" (identifier/operand)
-    # F3 - "sta" (Format 3 instruction)
-    # ID - "yy" (identifier/operand)
-    # ID - "xx" (identifier/label)
-    # WORD - "word" (directive from symbol table)
-    # NUM - "5" (number)
-    # ID - "yy" (identifier/label)
-    # RESW - "resw" (directive from symbol table)
-    # NUM - "1" (number)
-    # END - "end" (directive from symbol table)
-    # ID - "prog" (identifier)
