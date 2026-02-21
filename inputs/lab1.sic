@@ -1,4 +1,0 @@
-prog start 0
-    sta yy
-yy word 5
-end prog
