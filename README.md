@@ -45,4 +45,4 @@ M 000004 05
 E 000000
 ```
 
-This is based on the initial code provided in the course CS423-QU.
+This is based on the initial code provided in the course CS423.
