@@ -1,6 +1,0 @@
-prog start 0
-    base yy 
-    sub yy
-xx resw 1000
-yy word 5
-end prog
