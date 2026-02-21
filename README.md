@@ -1,7 +1,7 @@
 # SIC/XE Assembler
 
 ## Overview
-Two-pass assembler for SIC/XE (Simplified Instructional Computer - Extended) architecture supporting all standard features plus custom extensions.
+Two-pass assembler for SIC/XE (Simplified Instructional Computer - Extended) architecture.
 
 ## Features
 - **Two-pass assembly**: Symbol resolution and object code generation
