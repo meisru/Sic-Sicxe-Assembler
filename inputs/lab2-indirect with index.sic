@@ -1,4 +1,0 @@
-prog start 0
-add @yy, x --> wrong!
-yy byte c'abc'
-end prog
