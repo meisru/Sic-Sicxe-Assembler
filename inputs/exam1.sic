@@ -1,9 +1,0 @@
-prog start 0
-use cdata
-xx word 1
-use cblck
-tt resb 4095
-use
-yy 
-lda xx
-end prog
